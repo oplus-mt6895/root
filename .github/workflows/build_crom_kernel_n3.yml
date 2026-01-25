@@ -47,8 +47,11 @@ on:
 
 jobs:
   build:
-    name: Build ${{ github.event.inputs.FILE }} \( {{ github.event.inputs.SUFFIX }} \){{ github.event.inputs.FAST_BUILD == 'true' && ' [FAST]' || '' }}
+    name: >-
+      ${{ github.event.inputs.FAST_BUILD == 'true' && '[FAST] ' || '' }}
+      ${{ github.event.inputs.FILE }} ${{ github.event.inputs.SUFFIX }}
     runs-on: ubuntu-latest
+
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
@@ -70,7 +73,7 @@ jobs:
           remove-haskell: true
           remove-codeql: true
 
-      - name: Create & Enable Swap
+      - name: Create & Enable Swap (6GB)
         run: |
           sudo swapoff -a
           sudo fallocate -l 6G /swapfile
@@ -79,7 +82,7 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      - name: Validate Input & Set Variables
+      - name: Validate Input & Set Environment Variables
         run: |
           FILE="${{ github.event.inputs.FILE }}"
           declare -A VALID_COMBOS=(
@@ -94,9 +97,9 @@ jobs:
           echo "CPU=$CPU" >> $GITHUB_ENV
           echo "ANDROID_VERSION=$ANDROID_VERSION" >> $GITHUB_ENV
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
-          echo "BUILD_METHOD=perf" >> $GITHUB_ENV   # Nord 3 uses perf build
+          echo "BUILD_METHOD=perf" >> $GITHUB_ENV
 
-      - name: Set Up Ccache
+      - name: Set Up Ccache Directory
         run: |
           mkdir -p "\( HOME/.ccache_ \){{ github.event.inputs.FILE }}"
           echo "CCACHE_DIR=\( HOME/.ccache_ \){{ github.event.inputs.FILE }}" >> $GITHUB_ENV
@@ -115,7 +118,7 @@ jobs:
             libncurses-dev libssl-dev lld llvm python3 rsync unzip zip \
             zlib1g-dev liblz4-tool
 
-      - name: Install Repo
+      - name: Install Repo Tool
         run: |
           mkdir -p ~/.bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
@@ -125,10 +128,11 @@ jobs:
       - name: Sync Kernel Source
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
-          repo init -u https://github.com/Luffy-456/SukiSU_Kernel_Nord3.git -m ${{ github.event.inputs.FILE }}.xml --depth=1
+          repo init -u https://github.com/Luffy-456/SukiSU_Kernel_Nord3.git \
+            -m ${{ github.event.inputs.FILE }}.xml --depth=1
           repo sync -c -j$(nproc --all) --no-tags --force-sync
 
-      - name: Fix Vendor Path (OnePlus specific)
+      - name: Fix Vendor Path (OnePlus-specific)
         run: |
           cd kernel_workspace
           if [[ -d "kernel_module/vendor" ]]; then
@@ -136,7 +140,7 @@ jobs:
             rm -rf kernel_module
           fi
 
-      - name: Custom Kernel Suffix
+      - name: Apply Custom Kernel Suffix
         if: ${{ github.event.inputs.SUFFIX != '' }}
         run: |
           cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}
@@ -154,14 +158,15 @@ jobs:
           TAG="${META#*/}"
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$BRANCH"
           cd KernelSU
-          KSU_API=$(curl -fsSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/$BRANCH/kernel/Makefile" | grep "KSU_VERSION_API :=" | awk '{print $NF}' || echo "3.1.7")
+          KSU_API=$(curl -fsSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/$BRANCH/kernel/Makefile" \
+            | grep "KSU_VERSION_API :=" | awk '{print $NF}' || echo "3.1.7")
           KSU_FULL="v$KSU_API-$TAG@$BRANCH"
           sed -i '/KSU_VERSION_API :=/d; /KSU_VERSION_FULL :=/d' kernel/Makefile
           echo "KSU_VERSION_API := $KSU_API" >> kernel/Makefile
           echo "KSU_VERSION_FULL := $KSU_FULL" >> kernel/Makefile
           echo "KSUVER=$(expr $(git rev-list --count main 2>/dev/null || echo 13000) + 10700)" >> $GITHUB_ENV
 
-      - name: Apply SuSFS & Patches
+      - name: Apply SuSFS & Additional Patches
         run: |
           cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-\( {{ env.ANDROID_VERSION }}- \){{ env.KERNEL_VERSION }} ../susfs4ksu
@@ -177,7 +182,7 @@ jobs:
             patch -p1 -F3 < syscall_hooks.patch || true
           fi
 
-      - name: Configure defconfig
+      - name: Configure Kernel defconfig
         run: |
           cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}
           CONFIG="arch/arm64/configs/gki_defconfig"
@@ -229,7 +234,7 @@ jobs:
           export CC="ccache clang"
           ./build/build.sh
 
-      - name: Patch Image (KPM compatibility)
+      - name: Patch Kernel Image for KPM Compatibility
         run: |
           cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}/out/android12-5.10/kernel-5.10/arch/arm64/boot
           curl -LO https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
@@ -239,10 +244,10 @@ jobs:
           mv oImage Image
           gzip -9 Image
 
-      - name: Package with AnyKernel3
+      - name: Package with AnyKernel3 (Updated fork)
         run: |
           cd kernel_workspace
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git -b master ak3
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
           cp kernel-${{ env.KERNEL_VERSION }}/out/android12-5.10/kernel-5.10/arch/arm64/boot/Image.gz ak3/
           cd ak3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
@@ -250,12 +255,12 @@ jobs:
           sed -i 's/BLOCK=/boot;/' anykernel.sh
           zip -r9 "../Nika-Kernel-Nord3-AOSP-\( {{ github.event.inputs.SUFFIX }} \){{ github.event.inputs.VFS && '_VFS' || '' }}\( {{ github.event.inputs.KPM && '_KPM' || '' }}-KSU \){{ env.KSUVER }}.zip" *
 
-      - name: Upload Artifact
+      - name: Upload Final Zip
         uses: actions/upload-artifact@v4
         with:
           name: Nika-Kernel-Nord3-AOSP-\( {{ github.event.inputs.SUFFIX }} \){{ github.event.inputs.VFS && '_VFS' || '' }}${{ github.event.inputs.KPM && '_KPM' || '' }}
           path: kernel_workspace/*.zip
           if-no-files-found: error
 
-      - name: Show Disk Space (Post-Build)
+      - name: Post-build Disk Space Check
         run: df -h
