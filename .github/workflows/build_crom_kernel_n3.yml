@@ -468,7 +468,7 @@ jobs:
           curl -LO --retry 5 --retry-delay 2 --retry-connrefused https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
           chmod +x patch_linux
           ls
-          gzip -d Image.gz
+          gzip -f -d Image.gz
           ls
           ./patch_linux
           ls
