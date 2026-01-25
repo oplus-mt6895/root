@@ -17,7 +17,7 @@ on:
         type: string
         description: "Custom kernel suffix (leave empty for a random string)"
         required: false
-        default: "quiqqy"
+        default: "LuffyOP⚡"
       SUSFS_CI:
         type: choice
         description: "SUSFS module download method"
@@ -462,58 +462,23 @@ jobs:
           ./build/build.sh
           ccache -s
 
-      - name: Patch Kernel Image for KPM Compatibility
+      - name: Apply patch_linux and replace Image
         run: |
-          cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}/out/android12-5.10/kernel-5.10/arch/arm64/boot
-          
-          # Download patch_linux
-          curl -LO https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
+          cd kernel_workspace/out/android12-5.10/kernel-5.10/arch/arm64/boot/
+          curl -LO --retry 5 --retry-delay 2 --retry-connrefused https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
           chmod +x patch_linux
-          
-          # Debug: show what's already in the directory
-          echo "Files before patching:"
-          ls -la
-          
-          # Force-remove any existing uncompressed Image to avoid conflicts
-          rm -f Image Image.original
-          
-          # Decompress Image.gz (force overwrite if Image exists)
-          if [[ -f Image.gz ]]; then
-            echo "Decompressing Image.gz..."
-            gzip -df Image.gz   # -d = decompress, -f = force overwrite
-          else
-            echo "ERROR: Image.gz not found in $(pwd)!"
-            ls -la
-            exit 1
-          fi
-          
-          # Now we should have a clean Image file
-          if [[ ! -f Image ]]; then
-            echo "ERROR: Failed to decompress Image.gz - no Image created!"
-            exit 1
-          fi
-          
-          # Run the patch_linux tool
-          echo "Running patch_linux..."
-          ./patch_linux || { echo "patch_linux failed!"; exit 1; }
-          
-          # Verify oImage was created
-          if [[ ! -f oImage ]]; then
-            echo "ERROR: patch_linux did not produce oImage!"
-            ls -la
-            exit 1
-          fi
-          
-          # Replace original Image with patched one
+          ls
+          gzip -d Image.gz
+          ls
+          ./patch_linux
+          ls
+          rm -f Image.gz
+          ls
           mv oImage Image
-          
-          # Re-compress to Image.gz (force overwrite)
-          echo "Re-compressing patched Image..."
-          gzip -9f Image
-          
-          # Final verification
-          echo "Files after patching:"
-          ls -la
+          ls
+          gzip -f -9 Image
+          ls
+          pwd
 
       - name: Make AnyKernel3_CROM
         run: |
