@@ -48,40 +48,6 @@ on:
         default: true
 
 jobs:
-# JOB 1: NOTIFY THAT THE WORKFLOW HAS STARTED
-  notify_start:
-    name: Notify Start 🚀
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get current time
-        id: get_time
-        run: echo "timestamp=$(TZ='Asia/Kolkata' date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
-
-      - name: Send Telegram message on start
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID_PERSONAL }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            🚀 **Kernel Build Started!**
-
-            ───────────────
-            📦 **Workflow:** `${{ github.workflow }}`
-            🏷️ **Run ID:** `#${{ github.run_number }}`
-            👤 **Actor:** `${{ github.triggering_actor }}`
-            🔀 **Commit:** `${{ github.sha }}`
-            🗂️ **Config File:** `${{ github.event.inputs.FILE }}`
-            🔧 **Build Options:**
-                - Suffix: `${{ github.event.inputs.SUFFIX }}`
-                - Fast Build: `${{ github.event.inputs.FAST_BUILD }}`
-                - VFS: `${{ github.event.inputs.VFS }}`
-                - KPM: `${{ github.event.inputs.KPM }}`
-                - ZRAM: `${{ github.event.inputs.ZRAM }}`
-            🕒 **Started:** `${{ steps.get_time.outputs.timestamp }}` IST
-            ───────────────
-            👉 [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            
   build:
     needs: notify_start
     name: ${{ github.event.inputs.FAST_BUILD == 'true' && ' [FAST]' || '' }}For ${{ github.event.inputs.FILE }} ${{ github.event.inputs.SUFFIX }}
