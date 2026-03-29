@@ -222,44 +222,6 @@ jobs:
         run: |
           echo "BUILD_CONFIG=kernel-5.10/build.config.oplus6895" >> $GITHUB_ENV
 
-      - name: Vendor Issue Fix
-        run: |
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          echo "cd kernel_workspace"
-          cd kernel_workspace
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          echo "cd kernel_module"
-          cd kernel_module
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          echo "cd .."
-          cd ..
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          echo "moving every thing one dir up"
-          mv kernel_module/vendor .
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          cd ..
-          echo "pwd"
-          pwd
-          echo "ls"
-          ls
-          echo "rm -rf kernel_module"
-          rm -rf kernel_module
-
       - name: Custom Kernel Suffix if set
         if: ${{ github.event.inputs.SUFFIX != '' }}
         run: |
