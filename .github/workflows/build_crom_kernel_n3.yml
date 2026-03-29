@@ -337,6 +337,9 @@ jobs:
           cp ../SukiSU_patch/69_hide_stuff.patch ./
           echo "Applying hide stuff patch"
           patch -p1 -F 3 < 69_hide_stuff.patch
+          # Remove unused variable/label to suppress build errors
+          sed -i '/struct dentry \*dentry;/d' fs/proc/task_mmu.c || true
+          sed -i '/^[[:space:]]*bypass:[[:space:]]*$/d' fs/proc/task_mmu.c || true
           echo "hide_stuff_patch complete"
 
       - name: Apply VFS
