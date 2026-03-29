@@ -215,12 +215,12 @@ jobs:
       - name: Initialize Repo and Sync
         run: |
           mkdir kernel_workspace && cd kernel_workspace
-          repo init -u https://github.com/Luffy-456/SukiSU_Kernel_Nord3.git -m ${{ github.event.inputs.FILE }}.xml --depth=1
+          repo init -u https://github.com/oplus-mt6895/root.git -m ${{ github.event.inputs.FILE }}.xml --depth=1
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
 
       - name: Add in bash.rc
         run: |
-          echo "BUILD_CONFIG=kernel-5.10/build.config.oplus6983" >> $GITHUB_ENV
+          echo "BUILD_CONFIG=kernel-5.10/build.config.oplus6895" >> $GITHUB_ENV
 
       - name: Vendor Issue Fix
         run: |
