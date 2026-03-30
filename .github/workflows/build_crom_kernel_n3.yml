@@ -225,32 +225,40 @@ jobs:
       - name: Custom Kernel Suffix if set
         if: ${{ github.event.inputs.SUFFIX != '' }}
         run: |
-          cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}
-
+          cd kernel_workspace
           SUFFIX="${{ github.event.inputs.SUFFIX }}"
           ANDROID_VERSION="${{ env.ANDROID_VERSION }}"
-
-          FILE="scripts/setlocalversion"
-
-          if [ ! -f "$FILE" ]; then
-            echo "setlocalversion not found, skipping"
-            exit 0
-          fi
-
-          echo "Patching $FILE with suffix: $SUFFIX"
-
-          # Remove -dirty
-          sed -i 's/-dirty//g' "$FILE"
-
-          # Inject suffix safely (works for most 5.10 trees)
-          sed -i "/$SUFFIX/! s/echo \"\\\$res\"/echo \"\\\$res-${SUFFIX}\"/" "$FILE"
-
-          chmod +x "$FILE"
-
-          echo "Kernel suffix applied"
-
-          git add scripts/setlocalversion
-          git commit -m "Add kernel suffix (${SUFFIX})"
+          FAST_BUILD="${{ github.event.inputs.FAST_BUILD }}"
+          for path in \
+            kernel-${{ env.KERNEL_VERSION }}/scripts/setlocalversion; do
+            [ -f "$path" ] || continue
+            echo "Modifying: $path"
+            sed -i 's/ -dirty//g' "$path"
+            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$path"
+            if grep -q 'KERNELVERSION.*scm_version' "$path"; then
+              echo "Detected NEW setlocalversion format"
+              sed -i "s|echo \"\${KERNELVERSION}.*scm_version}\"|echo \"\${KERNELVERSION}-${ANDROID_VERSION}-${SUFFIX}\"|" "$path"
+            elif grep -q 'echo "\$res"' "$path"; then
+              echo "Detected OLD setlocalversion format"
+              if [ "$FAST_BUILD" = "true" ]; then
+                echo "FAST_BUILD enabled: using static res"
+                sed -i "s/^res=.*/res=\"-${ANDROID_VERSION}-${SUFFIX}\"/" "$path"
+              else
+                echo "Standard build: injecting suffix via cut/echo"
+                if [[ -f ./kernel-5.10/build_with_bazel.py ]]; then
+                  echo "When using the official script and building with build_with_bazel, the build may fail due to a limit on the number of special characters. Please modify the configuration if that happens."
+                fi
+                tac "$path" | sed "0,/echo \"\\\$res\"/s//res=\\\$(echo \\\$res | cut -d- -f1-2)-${SUFFIX}; echo \"\\\$res\";/" | tac > "$path.tmp" && mv "$path.tmp" "$path"
+              fi
+            else
+              echo "Unknown format, appending echo manually"
+              echo "echo \"\$res-${SUFFIX}\"" >> "$path"
+            fi
+            chmod +x "$path"
+          done
+          cd kernel-${{ env.KERNEL_VERSION }}
+          git add -A
+          git commit -m "Custom suffix & removed -dirty"
           
       - name: Add SukiSU Ultra (susfs-main)
         run: |
