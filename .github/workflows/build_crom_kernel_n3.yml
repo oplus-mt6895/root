@@ -1,4 +1,4 @@
-name: Build OnePlus Nord 3 AOSP
+name: Build GT Neo 3 AOSP
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
         type: string
         description: "Custom kernel suffix (leave empty for a random string)"
         required: false
-        default: "LuffyOP⚡"
+        default: "Thunder⚡"
       SUSFS_CI:
         type: choice
         description: "SUSFS module download method"
@@ -31,7 +31,7 @@ on:
         type: string
         description: "Branch name/Custom version identifier"
         required: false
-        default: "susfs-main/LuffyOP⚡"
+        default: "susfs-main/Thunder⚡"
       FAST_BUILD:
         type: boolean
         description: "Enable fast build?"
@@ -225,67 +225,80 @@ jobs:
       - name: Custom Kernel Suffix if set
         if: ${{ github.event.inputs.SUFFIX != '' }}
         run: |
-          cd kernel_workspace
+          cd kernel_workspace/kernel-${{ env.KERNEL_VERSION }}
+
           SUFFIX="${{ github.event.inputs.SUFFIX }}"
           ANDROID_VERSION="${{ env.ANDROID_VERSION }}"
-          FAST_BUILD="${{ github.event.inputs.FAST_BUILD }}"
-          for path in \
-            kernel-${{ env.KERNEL_VERSION }}/scripts/setlocalversion; do
-            [ -f "$path" ] || continue
-            echo "Modifying: $path"
-            sed -i 's/ -dirty//g' "$path"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$path"
-            if grep -q 'KERNELVERSION.*scm_version' "$path"; then
-              echo "Detected NEW setlocalversion format"
-              sed -i "s|echo \"\${KERNELVERSION}.*scm_version}\"|echo \"\${KERNELVERSION}-${ANDROID_VERSION}-${SUFFIX}\"|" "$path"
-            elif grep -q 'echo "\$res"' "$path"; then
-              echo "Detected OLD setlocalversion format"
-              if [ "$FAST_BUILD" = "true" ]; then
-                echo "FAST_BUILD enabled: using static res"
-                sed -i "s/^res=.*/res=\"-${ANDROID_VERSION}-${SUFFIX}\"/" "$path"
-              else
-                echo "Standard build: injecting suffix via cut/echo"
-                if [[ -f ./kernel-5.10/build_with_bazel.py ]]; then
-                  echo "When using the official script and building with build_with_bazel, the build may fail due to a limit on the number of special characters. Please modify the configuration if that happens."
-                fi
-                tac "$path" | sed "0,/echo \"\\\$res\"/s//res=\\\$(echo \\\$res | cut -d- -f1-2)-${SUFFIX}; echo \"\\\$res\";/" | tac > "$path.tmp" && mv "$path.tmp" "$path"
-              fi
-            else
-              echo "Unknown format, appending echo manually"
-              echo "echo \"\$res-${SUFFIX}\"" >> "$path"
-            fi
-            chmod +x "$path"
-          done
-          cd kernel-${{ env.KERNEL_VERSION }}
-          git add -A
-          git commit -m "Custom suffix & removed -dirty"
 
-      - name: Add SukiSU Ultra
+          FILE="scripts/setlocalversion"
+
+          if [ ! -f "$FILE" ]; then
+            echo "setlocalversion not found, skipping"
+            exit 0
+          fi
+
+          echo "Patching $FILE with suffix: $SUFFIX"
+
+          # Remove -dirty
+          sed -i 's/-dirty//g' "$FILE"
+
+          # Inject suffix safely (works for most 5.10 trees)
+          sed -i "s/echo \"\\\$res\"/echo \"\\\$res-${ANDROID_VERSION}-${SUFFIX}\"/" "$FILE"
+
+          chmod +x "$FILE"
+
+          echo "Kernel suffix applied"
+
+          git add scripts/setlocalversion
+          git commit -m "Add kernel suffix (${SUFFIX})"
+          
+      - name: Add SukiSU Ultra (susfs-main)
         run: |
           cd kernel_workspace/kernel-5.10
-          META="${{ github.event.inputs.KSU_META }}"
-          BRANCH_NAME="${META%%/*}"
-          CUSTOM_TAG="${META#*/}"
-          echo "Branch name: $BRANCH_NAME"
-          echo "Custom version identifier: $CUSTOM_TAG"
+
+          # Force branch to susfs-main
+          BRANCH_NAME="susfs-main"
+          CUSTOM_TAG="${{ github.event.inputs.SUFFIX }}"
+
+          echo "Using SukiSU branch: $BRANCH_NAME"
+          echo "Custom tag: $CUSTOM_TAG"
+
+          # Setup SukiSU Ultra
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$BRANCH_NAME"
-          cd ./KernelSU
+
+          cd KernelSU
+
+          # Fetch API version (dynamic)
           KSU_API_VERSION=$(curl -fsSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/$BRANCH_NAME/kernel/Makefile" | \
             grep -m1 "KSU_VERSION_API :=" | awk -F'= ' '{print $2}' | tr -d '[:space:]')
-          [[ -z "$KSU_API_VERSION" ]] && KSU_API_VERSION="3.1.7"
+
+          # Fallback safety
+          if [ -z "$KSU_API_VERSION" ]; then
+            KSU_API_VERSION="3.1.7"
+          fi
+
           echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
-          KSU_VERSION_FULL="v$KSU_API_VERSION-$CUSTOM_TAG@$BRANCH_NAME"
+
+          # Build full version string
+          KSU_VERSION_FULL="v${KSU_API_VERSION}-${CUSTOM_TAG}@${BRANCH_NAME}"
           echo "KSU_VERSION_FULL=$KSU_VERSION_FULL" >> $GITHUB_ENV
+
+          # Clean old entries
           sed -i '/KSU_VERSION_API :=/d' kernel/Makefile
           sed -i '/KSU_VERSION_FULL :=/d' kernel/Makefile
+
+          # Inject versions
           echo "KSU_VERSION_API := $KSU_API_VERSION" >> kernel/Makefile
           echo "KSU_VERSION_FULL := $KSU_VERSION_FULL" >> kernel/Makefile
+
+          # Generate internal version code
           KSU_VERSION=$(expr $(git rev-list --count main 2>/dev/null || echo 13000) + 10700)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          echo "::group:: Preview of version information in the final Makefile"
+
+          echo "::group::KernelSU Version Info"
           grep -A5 "KSU_VERSION_API" kernel/Makefile
           echo "::endgroup::"
-
+          
       - name: Get Kernel Suffix
         id: suffix_step
         run: |
@@ -298,39 +311,27 @@ jobs:
       - name: Apply Patches SukiSU Ultra
         run: |
           cd kernel_workspace
+
+          # Clone required repos
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          cd kernel-5.10
-          echo "Fetching susfs patches"
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./
-          cp ../susfs4ksu/kernel_patches/fs/* ./fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
-          GKI_V="${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
-          SUBLEVEL=$(grep '^SUBLEVEL *=' Makefile | head -n1 | cut -d= -f2 | tr -d ' ')
-          if [ "$GKI_V" == "android13-5.15" ] && [ "$SUBLEVEL" -lt 123 ]; then
-            echo "Fixing some potential legacy issues for kernel versions 5.15.0 to 5.15.123"
-            curl -Lo fix_5.15.legacy.patch --retry 5 --retry-delay 2 --retry-connrefused https://raw.githubusercontent.com/Numbersf/Action-Build/SukiSU-Ultra/patches/fix_5.15.legacy
-            patch -p1 < fix_5.15.legacy.patch
-            echo "fix_5.15_patch complete"
-          fi
-          KERNEL_VERSION="${{ env.KERNEL_VERSION }}"
-          file="${{ github.event.inputs.FILE }}"
-          TRUSTY_EXISTS="false"
-          if [[ "$KERNEL_VERSION" == "6.6" ]]; then
-            if grep -qr 'common-modules/trusty' "$GITHUB_WORKSPACE/.repo/manifests_fallback/${file}.xml"; then
-              TRUSTY_EXISTS="true"
-            fi
-            echo "trusty_exists=$TRUSTY_EXISTS" >> $GITHUB_OUTPUT
-            if [[ "$TRUSTY_EXISTS" == "false" ]]; then
-              echo "Fixing susfs issue for some models with kernel version 6.6"
-              sed -i 's/-32,12 +32,38/-32,11 +32,37/g' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${KERNEL_VERSION}.patch
-              sed -i '/#include <trace\/hooks\/fs.h>/d' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${KERNEL_VERSION}.patch
-            fi
-          fi
-          echo "Applying susfs patch"
-          patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-          echo "susfs_patch complete"
 
+          cd kernel-5.10
+
+          echo "Fetching SUSFS patches..."
+
+          # Copy patches
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./
+          cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+
+          echo "Applying SUSFS patch..."
+
+          # Apply patch (FAIL if it doesn't apply)
+          patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
+
+          echo "SUSFS patch applied successfully"
+          
       - name: Apply VFS
         if: ${{ github.event.inputs.VFS == 'true' }}
         run: |
@@ -343,67 +344,84 @@ jobs:
       - name: Add Configuration Settings
         run: |
           cd kernel_workspace/kernel-5.10
+
           CONFIG_FILE=./arch/arm64/configs/gki_defconfig
-          KERNEL_VERSION="${{ env.KERNEL_VERSION }}"
-          echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
+
+          echo "Applying kernel configs safely..."
+
+          set_config() {
+            KEY=$1
+            VALUE=$2
+            if grep -q "^$KEY=" "$CONFIG_FILE"; then
+              sed -i "s/^$KEY=.*/$KEY=$VALUE/" "$CONFIG_FILE"
+            else
+              echo "$KEY=$VALUE" >> "$CONFIG_FILE"
+            fi
+          }
+
+          set_config CONFIG_KSU y
+
           if [ "${{ github.event.inputs.KPM }}" = "true" ]; then
-            echo "CONFIG_KPM=y" >> "$CONFIG_FILE"
+            set_config CONFIG_KPM y
           fi
+
           if [ "${{ github.event.inputs.VFS }}" = "true" ]; then
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$CONFIG_FILE"
+            set_config CONFIG_KSU_SUSFS_SUS_SU n
+            set_config CONFIG_KSU_MANUAL_HOOK y
           else
-            echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> "$CONFIG_FILE"
-            echo "CONFIG_KPROBES=y" >> "$CONFIG_FILE"
+            set_config CONFIG_KSU_SUSFS_SUS_SU y
+            set_config CONFIG_KPROBES y
           fi
-          echo "CONFIG_KSU_SUSFS=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TMPFS_XATTR=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_ADVANCED=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_BBR=y" >> "$CONFIG_FILE"
-          echo "CONFIG_NET_SCH_FQ=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_BIC=n" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_HTCP=n" >> "$CONFIG_FILE"
-          echo "CONFIG_IP_ECN=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_ECN=y" >> "$CONFIG_FILE"
-          echo "CONFIG_IPV6_ECN=y" >> "$CONFIG_FILE"
-          echo "CONFIG_IP_NF_TARGET_ECN=y" >> "$CONFIG_FILE"
+
+          # SUSFS configs
+          set_config CONFIG_KSU_SUSFS y
+          set_config CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT y
+          set_config CONFIG_KSU_SUSFS_SUS_PATH y
+          set_config CONFIG_KSU_SUSFS_SUS_MOUNT y
+          set_config CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT y
+          set_config CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT y
+          set_config CONFIG_KSU_SUSFS_SUS_KSTAT y
+          set_config CONFIG_KSU_SUSFS_SUS_OVERLAYFS n
+          set_config CONFIG_KSU_SUSFS_TRY_UMOUNT y
+          set_config CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT y
+          set_config CONFIG_KSU_SUSFS_SPOOF_UNAME y
+          set_config CONFIG_KSU_SUSFS_ENABLE_LOG y
+          set_config CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS y
+          set_config CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG y
+          set_config CONFIG_KSU_SUSFS_OPEN_REDIRECT y
+
+          set_config CONFIG_TMPFS_XATTR y
+          set_config CONFIG_TMPFS_POSIX_ACL y
+
+          set_config CONFIG_TCP_CONG_ADVANCED y
+          set_config CONFIG_TCP_CONG_BBR y
+          set_config CONFIG_NET_SCH_FQ y
+
+          set_config CONFIG_TCP_CONG_BIC n
+          set_config CONFIG_TCP_CONG_WESTWOOD n
+          set_config CONFIG_TCP_CONG_HTCP n
+
+          set_config CONFIG_IP_ECN y
+          set_config CONFIG_TCP_ECN y
+          set_config CONFIG_IPV6_ECN y
+          set_config CONFIG_IP_NF_TARGET_ECN y
+
           sed -i 's/check_defconfig//' ./build.config.gki
 
+          echo "Config patch complete"
+          
       - name: Custom BUILD_TIME
-        if: ${{ github.event.inputs.BUILD_TIME != '' && !contains('Ff', github.event.inputs.BUILD_TIME) }}
-        shell: bash
+        if: ${{ github.event.inputs.BUILD_TIME != '' && github.event.inputs.BUILD_TIME != 'F' && github.event.inputs.BUILD_TIME != 'f' }}
         run: |
           DATESTR="${{ github.event.inputs.BUILD_TIME }}"
-          echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> "$GITHUB_ENV"
-          echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
-          cd kernel_workspace/kernel-5.10/
-          for f in common/scripts/mkcompile_h msm-kernel/scripts/mkcompile_h; do
-            if [ -f "$f" ]; then
-              echo "Patching mkcompile_h with BUILD_TIME=$DATESTR"
-              if grep -q 'UTS_VERSION=' "$f"; then
-                perl -pi -e "s{UTS_VERSION=\"\\\$\\(.*?\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
-              else
-                perl -0777 -pi -e "s{cat <<EOF}{cat <<EOF\n#undef UTS_VERSION\n#define UTS_VERSION \"#1 SMP PREEMPT $DATESTR\" } unless /UTS_VERSION/" "$f"
-              fi
-            fi
-          done
 
+          echo "Setting custom build time: $DATESTR"
+
+          echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_VERSION=1" >> $GITHUB_ENV
+
+          echo "Build time override applied"
+          
       - name: Build Kernel FAST
         if: ${{ github.event.inputs.FAST_BUILD == 'true' }}
         id: fast_build
@@ -418,37 +436,70 @@ jobs:
 
       - name: Apply patch_linux and replace Image
         run: |
-          cd kernel_workspace/out/android12-5.10/kernel-5.10/arch/arm64/boot/
-          curl -LO --retry 5 --retry-delay 2 --retry-connrefused https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
+          BOOT_DIR="kernel_workspace/out/android12-5.10/kernel-5.10/arch/arm64/boot"
+          cd "$BOOT_DIR" || { echo "Boot dir not found"; exit 1; }
+
+          echo "Boot directory: $(pwd)"
+          ls
+
+          # Download patch tool
+          curl -LO --retry 5 --retry-delay 2 --retry-connrefused \
+            https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/patch_linux
+
           chmod +x patch_linux
-          ls
-          gzip -f -d Image.gz
-          ls
-          ./patch_linux
-          ls
-          rm -f Image.gz
-          ls
-          mv oImage Image
-          ls
+
+          # Handle Image / Image.gz safely
+          if [ -f Image.gz ]; then
+            echo "Decompressing Image.gz"
+            gzip -f -d Image.gz
+          fi
+
+          if [ ! -f Image ]; then
+            echo "Image not found!"
+            exit 1
+          fi
+
+          # Apply patch ONLY if KPM enabled
+          if [ "${{ github.event.inputs.KPM }}" = "true" ]; then
+            echo "Applying patch_linux (KPM enabled)"
+            ./patch_linux || { echo "patch_linux failed"; exit 1; }
+          else
+            echo "Skipping patch_linux (KPM disabled)"
+          fi
+
+          # Replace image if patched output exists
+          if [ -f oImage ]; then
+            mv oImage Image
+          fi
+
+          # Repack
           gzip -f -9 Image
+
+          echo "Final files:"
           ls
-          pwd
 
-      - name: Make AnyKernel3_CROM
+      - name: Make AnyKernel3
         run: |
-          git clone https://github.com/darklord4567/Anykernel3_AOSP_NORD3.git --depth=1
-          cp kernel_workspace/out/android12-5.10/kernel-5.10/arch/arm64/boot/Image.gz Anykernel3_AOSP_NORD3/Image.gz
+          git clone https://github.com/darklord4567/Anykernel3_AOSP_NORD3.git --depth=1 AnyKernel3
 
+          cp kernel_workspace/out/android12-5.10/kernel-5.10/arch/arm64/boot/Image.gz AnyKernel3/
+
+          echo "AnyKernel contents:"
+          ls AnyKernel3
+          
       - name: Set zip Suffix
         id: suffix
         run: |
-          echo "value=${{ github.event.inputs.VFS == 'true' && '_VFS' || '' }}${{ github.event.inputs.KPM == 'true' && '_KPM' || '' }}${{ github.event.inputs.SCHED== 'true' && '_SCHED' || '' }}" >> $GITHUB_OUTPUT
+          SUFFIX=""
+          [ "${{ github.event.inputs.VFS }}" = "true" ] && SUFFIX="${SUFFIX}_VFS"
+          [ "${{ github.event.inputs.KPM }}" = "true" ] && SUFFIX="${SUFFIX}_KPM"
+          echo "value=$SUFFIX" >> $GITHUB_OUTPUT
 
-      - name: Upload AnyKernel3_CROM
+      - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: "Nika Kernel For OnePlusNord 3_AOSP${{ steps.suffix.outputs.value }} by LuffyOP⚡"
-          path: ./Anykernel3_AOSP_NORD3/*
+          name: "Nika Kernel GT Neo 3_AOSP${{ steps.suffix.outputs.value }}"
+          path: ./AnyKernel3/*
 
       - name: Post-build Disk Check
         run: df -h
