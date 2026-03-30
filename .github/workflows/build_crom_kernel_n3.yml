@@ -243,7 +243,7 @@ jobs:
           sed -i 's/-dirty//g' "$FILE"
 
           # Inject suffix safely (works for most 5.10 trees)
-          sed -i "s/echo \"\\\$res\"/echo \"\\\$res-${ANDROID_VERSION}-${SUFFIX}\"/" "$FILE"
+          sed -i "s/echo \"\\\$res\"/echo \"\\\$res-${SUFFIX}\"/" "$FILE"
 
           chmod +x "$FILE"
 
